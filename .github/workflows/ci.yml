@@ -1,10 +1,10 @@
 name: Cargo Build & Test
 
 on:
-  push:
-  pull_request:
+  push: ["*"]
+  pull_request: ["*"]
 
-env: 
+env:
   CARGO_TERM_COLOR: always
 
 jobs:

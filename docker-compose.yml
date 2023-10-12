@@ -1,0 +1,39 @@
+version: "3.7"
+
+networks:
+  axum_crud_test:
+    driver: bridge
+
+services:
+  # axum_crud_test_web:
+  #   image: axum_crud_test_web
+  #   platform: linux/amd64
+  #   tty: true
+  #   stdin_open: true
+  #   build: .
+  #   container_name: axum_crud_test_web
+  #   volumes:
+  #     - ./:/app
+  #   ports:
+  #     - 3000:3000
+  #   env_file:
+  #     - ./.env
+  #   depends_on:
+  #     - postgres
+  #   networks:
+  #     - axum_crud_test
+
+  postgres:
+    image: postgres
+    container_name: axum_crud_test_postgres
+    ports:
+      - 6500:5432
+    env_file:
+      - ./.env
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    networks:
+      - axum_crud_test
+
+volumes:
+  postgres:
