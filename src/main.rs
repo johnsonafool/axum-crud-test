@@ -1,61 +1,86 @@
-mod handlers;
-mod book;
-use crate::book::Book;
-mod db;
-use crate::db::DATA;
-
-use axum::routing::get;
-use tracing_subscriber::{
-    layer::SubscriberExt,
-    util::SubscriberInitExt,
+use anyhow::Context;
+use askama::Template;
+use axum::{
+    http::StatusCode,
+    response::{Html, IntoResponse, Response},
+    routing::get,
+    Router,
 };
-use serde_json::{json, Value};
-use std::net::SocketAddr;
-use std::collections::HashMap;
-/// Use Thread for spawning a thread e.g. to acquire our DATA mutex lock.
-use std::thread;
+use tower_http::services::ServeDir;
+use tracing::info;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
-pub async fn main() {
-    // Start tracing.
+async fn main() -> anyhow::Result<()> {
     tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "with_axum_htmx_askama=debug".into()),
+        )
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let app = axum::Router::new()
-    // .fallback(
-    //     fallback
-    // )
-    .route("/",
-        get(handlers::health)
-    );        
+    info!("initializing router...");
 
-    // with socket address
-    let host = [127, 0, 0, 1];
-    let port = 3000;
-    let addr = SocketAddr::from((host, port));
+    // We could also read our port in from the environment as well
+    let assets_path = std::env::current_dir().unwrap();
+    let port = 8000_u16;
+    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
+    let router = Router::new()
+        .route("/", get(hello))
+        .route("/another-page", get(another_page))
+        .nest_service(
+            "/assets",
+            ServeDir::new(format!("{}/assets", assets_path.to_str().unwrap())),
+    );
 
-    // Run our application as a hyper server on http://localhost:3000.
+    info!("router initialized, now listening on port {}", port);
+
     axum::Server::bind(&addr)
-        .serve(app.into_make_service())
-        .with_graceful_shutdown(shutdown_signal())
+        .serve(router.into_make_service())
         .await
-        .unwrap();
+        .context("error while starting server")?;
+
+    Ok(())
 }
 
-/// axum handler for any request that fails to match the router routes.
-/// This implementation returns HTTP status code Not Found (404).
-pub async fn fallback(
-    uri: axum::http::Uri
-) -> impl axum::response::IntoResponse {
-    (axum::http::StatusCode::NOT_FOUND, format!("No route {}", uri))
+async fn hello() -> impl IntoResponse {
+    let template = HelloTemplate {};
+    HtmlTemplate(template)
 }
 
-/// Tokio signal handler that will wait for a user to press CTRL+C.
-/// We use this in our hyper `Server` method `with_graceful_shutdown`.
-async fn shutdown_signal() {
-    tokio::signal::ctrl_c()
-        .await
-        .expect("expect tokio signal ctrl-c");
-    println!("signal shutdown");
+#[derive(Template)]
+#[template(path = "hello.html")]
+struct HelloTemplate;
+
+/// A wrapper type that we'll use to encapsulate HTML parsed by askama into valid HTML for axum to serve.
+struct HtmlTemplate<T>(T);
+
+/// Allows us to convert Askama HTML templates into valid HTML for axum to serve in the response.
+impl<T> IntoResponse for HtmlTemplate<T>
+where
+    T: Template,
+{
+    fn into_response(self) -> Response {
+        // Attempt to render the template with askama
+        match self.0.render() {
+            // If we're able to successfully parse and aggregate the template, serve it
+            Ok(html) => Html(html).into_response(),
+            // If we're not, return an error or some bit of fallback HTML
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template. Error: {}", err),
+            )
+                .into_response(),
+        }
+    }
 }
+
+async fn another_page() -> impl IntoResponse {
+    let template = AnotherPageTemplate {};
+    HtmlTemplate(template)
+}
+
+#[derive(Template)]
+#[template(path = "another-page.html")]
+struct AnotherPageTemplate;
