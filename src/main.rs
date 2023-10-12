@@ -1,14 +1,21 @@
+use std::sync::{Mutex, Arc};
+
 use anyhow::Context;
 use askama::Template;
 use axum::{
     http::StatusCode,
     response::{Html, IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
     Router,
+    extract::State,
 };
 use tower_http::services::ServeDir;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+struct AppState {
+    todos: Mutex<Vec<String>>
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -22,11 +29,22 @@ async fn main() -> anyhow::Result<()> {
 
     info!("initializing router...");
 
-    // We could also read our port in from the environment as well
+    // A thread-safe reference-counting pointer
+    let app_state = std::sync::Arc::new(AppState {
+        todos: Mutex::new(vec![]),
+    });
+
     let assets_path = std::env::current_dir().unwrap();
     let port = 8000_u16;
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
+
+    let api_router = Router::new()
+        .route("/hello", get(hello_from_the_server))        
+        .route("/todos", post(add_todo))
+        .with_state(app_state);
+
     let router = Router::new()
+        .nest("/api", api_router)
         .route("/", get(hello))
         .route("/another-page", get(another_page))
         .nest_service(
@@ -84,3 +102,29 @@ async fn another_page() -> impl IntoResponse {
 #[derive(Template)]
 #[template(path = "another-page.html")]
 struct AnotherPageTemplate;
+
+async fn hello_from_the_server() -> &'static str {
+    "Hello!"
+}
+
+#[derive(Template)]
+#[template(path = "todo-list.html")]
+struct TodoList {
+    todos: Vec<String>,
+}
+
+async fn add_todo(
+    State(state): State<Arc<AppState>>,
+    // Form(todo): Form<TodoRequest>,
+) -> impl IntoResponse {
+    let mut lock = state.todos.lock().unwrap();
+
+    // @TODO- fix form issue
+    lock.push("i cannot use form 🫠".to_string());
+
+    let template = TodoList {
+        todos: lock.clone(),
+    };
+
+    HtmlTemplate(template)
+}
