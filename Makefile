@@ -18,3 +18,9 @@ putbooks:
 	--request PUT 'http://localhost:3000/books' \
 	--header "Content-Type: application/json" \
 	--data '{"id":4,"title":"Decameron","author":"Giovanni Boccaccio"}'
+
+tty:
+	docker exec -it axum_crud_test_web bash
+
+migration:
+	sqlx migrate add "initial database setup"
